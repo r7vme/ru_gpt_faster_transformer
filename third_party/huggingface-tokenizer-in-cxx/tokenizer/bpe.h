@@ -4,6 +4,8 @@
 #include <re2/re2.h>
 #include <re2/stringpiece.h>
 
+#include <locale>
+#include <climits>
 #include <codecvt>
 #include <fstream>
 #include <iostream>
