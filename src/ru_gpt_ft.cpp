@@ -3,7 +3,7 @@
 namespace ft = fastertransformer;
 
 const RuGptFtConfig RU_GPT_FT_DEFAULT_CONFIG = {
-    .max_seq_len = 128,
+    .max_seq_len = 2048,
     .beam_width = 1,
     .top_k = 0,
     .top_p = 0.5f,
@@ -20,7 +20,7 @@ const RuGptFtConfig RU_GPT_FT_DEFAULT_CONFIG = {
     .size_per_head = 64,
     .vocab_size = 50257,
     .decoder_layers = 24,
-    .request_output_len = 32,
+    .request_output_len = 1024,
     .start_id = 50256,
     .end_id = 50256,
 };

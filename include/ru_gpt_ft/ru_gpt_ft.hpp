@@ -34,6 +34,9 @@ struct RuGptFtConfig {
 
 extern const RuGptFtConfig RU_GPT_FT_DEFAULT_CONFIG;
 
+///
+/// @brief Run RU_GPT3 inference with NVIDIA FastTransformer library
+///
 class RuGptFt final : public IGptInference {
   RuGptFtConfig m_config;
   uint32_t m_random_seed;
@@ -54,7 +57,23 @@ class RuGptFt final : public IGptInference {
   std::unique_ptr<fastertransformer::ParallelGptWeight<float>> m_gpt_weights_ptr{nullptr};
 
  public:
+  ///
+  /// @brief Create RuGptFt instance.
+  ///
+  /// PyTorch model can be converted to FasterTransformer format with
+  /// scripts/convert_to_ft.py
+  ///
+  /// @param[in] model_dir path to model folder
+  /// @param[in] config configutation. RU_GPT_FT_DEFAULT_CONFIG is recommended
+  /// @param[in] random_seed integer to initialize random number generator
+  ///
   explicit RuGptFt(const std::string& model_dir, const RuGptFtConfig& config,
                    const uint32_t random_seed);
+  ///
+  /// @brief Run inference with NVIDIA FastTransformer library
+  ///
+  /// @param[in] tokens array of tokens
+  /// @return array of tokens
+  ///
   Tokens infer(const Tokens& tokens) override;
 };

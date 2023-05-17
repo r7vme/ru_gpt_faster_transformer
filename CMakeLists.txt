@@ -18,5 +18,15 @@ add_library(ru_gpt_ft src/ru_gpt_ft.cpp src/ru_gpt_tokenizer.cpp)
 target_link_libraries(ru_gpt_ft PUBLIC -lcublas -lcublasLt -lcudart ParallelGpt tokenizer)
 target_include_directories(ru_gpt_ft PUBLIC include)
 
-add_executable(ru_gpt_ft_exe src/main.cc)
+add_executable(ru_gpt_ft_exe src/main.cpp)
 target_link_libraries(ru_gpt_ft_exe ru_gpt_ft)
+
+if(BUILD_TESTING)
+  # unit tests
+  add_subdirectory(third_party/Catch2)
+  add_executable(unit_tests
+    test/test_ru_gpt_tokenizer.cpp
+  )
+  target_link_libraries(unit_tests PRIVATE ru_gpt_ft Catch2::Catch2WithMain)
+  catch_discover_tests(unit_tests)
+endif()
