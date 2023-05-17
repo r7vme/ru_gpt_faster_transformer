@@ -27,7 +27,7 @@ const RuGptFtConfig RU_GPT_FT_DEFAULT_CONFIG = {
 
 RuGptFt::RuGptFt(const std::string& model_dir, const RuGptFtConfig& config,
                  const uint32_t random_seed)
-    : config(config), random_seed(random_seed) {
+    : m_config(config), m_random_seed(random_seed) {
   cudaStreamCreate(&m_stream);
   cublasCreate(&m_cublas_handle);
   cublasLtCreate(&m_cublaslt_handle);
@@ -82,24 +82,28 @@ RuGptFt::RuGptFt(const std::string& model_dir, const RuGptFtConfig& config,
       false, &m_prop, attention_type, false, 0, nullptr, 0, config.shared_contexts_ratio));
 }
 
-void RuGptFt::process() {
-  int input_length = 6;
+Tokens RuGptFt::infer(const Tokens& tokens) {
+  auto token_num = tokens.size();
+  if (token_num == 0) {
+    return {};
+  }
+
+  int input_length = token_num;
   std::vector<int> input_lengths{input_length};
-  std::vector<int> input_tokens{28810, 20857, 20068, 8542, 282, 225};
 
   int* d_input_ids;
   int* d_input_lengths;
   ft::deviceMalloc(&d_input_ids, input_length, false);
   ft::deviceMalloc(&d_input_lengths, 1, false);
-  ft::cudaH2Dcpy(d_input_ids, input_tokens.data(), input_length);
+  ft::cudaH2Dcpy(d_input_ids, tokens.data(), input_length);
   ft::cudaH2Dcpy(d_input_lengths, input_lengths.data(), 1);
 
-  const int total_output_len = input_length + config.request_output_len;
+  const int total_output_len = input_length + m_config.request_output_len;
 
   int* d_output_ids;
   int* d_sequence_lengths;
-  ft::deviceMalloc(&d_output_ids, config.beam_width * total_output_len, false);
-  ft::deviceMalloc(&d_sequence_lengths, config.beam_width, false);
+  ft::deviceMalloc(&d_output_ids, m_config.beam_width * total_output_len, false);
+  ft::deviceMalloc(&d_sequence_lengths, m_config.beam_width, false);
   std::vector<uint32_t> output_seq_len(1, total_output_len);
 
   std::unordered_map<std::string, ft::Tensor> input_tensors =
@@ -110,38 +114,39 @@ void RuGptFt::process() {
            ft::Tensor{ft::MEMORY_GPU, ft::TYPE_INT32, std::vector<size_t>{1}, d_input_lengths}},
           {"output_seq_len", ft::Tensor{ft::MEMORY_CPU, ft::TYPE_UINT32, std::vector<size_t>{1},
                                         output_seq_len.data()}},
-          {"temperature",
-           ft::Tensor{ft::MEMORY_CPU, ft::TYPE_FP32, std::vector<size_t>{1}, &config.temperature}},
-          {"len_penalty",
-           ft::Tensor{ft::MEMORY_CPU, ft::TYPE_FP32, std::vector<size_t>{1}, &config.len_penalty}},
-          {"min_length",
-           ft::Tensor{ft::MEMORY_CPU, ft::TYPE_INT32, std::vector<size_t>{1}, &config.min_length}}};
+          {"temperature", ft::Tensor{ft::MEMORY_CPU, ft::TYPE_FP32, std::vector<size_t>{1},
+                                     &m_config.temperature}},
+          {"len_penalty", ft::Tensor{ft::MEMORY_CPU, ft::TYPE_FP32, std::vector<size_t>{1},
+                                     &m_config.len_penalty}},
+          {"min_length", ft::Tensor{ft::MEMORY_CPU, ft::TYPE_INT32, std::vector<size_t>{1},
+                                    &m_config.min_length}}};
 
-  if (config.repetition_penalty != 1.0f) {
+  // TODO: fix this insane float equality comparison that comes from FastTransformer example
+  if (m_config.repetition_penalty != 1.0f) {
     input_tensors.insert(
         {"repetition_penalty", ft::Tensor{ft::MEMORY_CPU, ft::TYPE_FP32, std::vector<size_t>{1},
-                                          &config.repetition_penalty}});
+                                          &m_config.repetition_penalty}});
   }
-  if (config.presence_penalty != 0.0f) {
+  if (m_config.presence_penalty != 0.0f) {
     input_tensors.insert(
         {"presence_penalty", ft::Tensor{ft::MEMORY_CPU, ft::TYPE_FP32, std::vector<size_t>{1},
-                                        &config.presence_penalty}});
+                                        &m_config.presence_penalty}});
   }
-  if (config.top_k == 0 && config.top_p == 0.0f) {
-    ft::FT_CHECK(config.beam_width > 1);
+  if (m_config.top_k == 0 && m_config.top_p == 0.0f) {
+    ft::FT_CHECK(m_config.beam_width > 1);
     input_tensors.insert({"beam_search_diversity_rate",
                           ft::Tensor{ft::MEMORY_CPU, ft::TYPE_FP32, std::vector<size_t>{1},
-                                     &config.beam_search_diversity_rate}});
+                                     &m_config.beam_search_diversity_rate}});
   } else {
     input_tensors.insert({"random_seed", ft::Tensor{ft::MEMORY_CPU, ft::TYPE_UINT64,
-                                                    std::vector<size_t>{1}, &random_seed}});
-    if (config.top_p != 0.0f) {
+                                                    std::vector<size_t>{1}, &m_random_seed}});
+    if (m_config.top_p != 0.0f) {
       input_tensors.insert({"runtime_top_p", ft::Tensor{ft::MEMORY_CPU, ft::TYPE_FP32,
-                                                        std::vector<size_t>{1}, &config.top_p}});
+                                                        std::vector<size_t>{1}, &m_config.top_p}});
     }
-    if (config.top_k != 0) {
+    if (m_config.top_k != 0) {
       input_tensors.insert({"runtime_top_k", ft::Tensor{ft::MEMORY_CPU, ft::TYPE_UINT32,
-                                                        std::vector<size_t>{1}, &config.top_k}});
+                                                        std::vector<size_t>{1}, &m_config.top_k}});
     }
   }
 
@@ -149,37 +154,17 @@ void RuGptFt::process() {
       std::unordered_map<std::string, ft::Tensor>{
           {"output_ids",
            ft::Tensor{ft::MEMORY_GPU, ft::TYPE_INT32,
-                      std::vector<size_t>{1, config.beam_width, (size_t)total_output_len},
+                      std::vector<size_t>{1, m_config.beam_width, (size_t)total_output_len},
                       d_output_ids}},
           {"sequence_length",
-           ft::Tensor{ft::MEMORY_GPU, ft::TYPE_INT32, std::vector<size_t>{1, config.beam_width},
+           ft::Tensor{ft::MEMORY_GPU, ft::TYPE_INT32, std::vector<size_t>{1, m_config.beam_width},
                       d_sequence_lengths}}};
   m_gpt_ptr->forward(&output_tensors, &input_tensors, m_gpt_weights_ptr.get());
-  // runtime end
 
   // output
-  std::string fName = "out";
-  auto outFile = std::ofstream(fName, std::ios::out);
-  if (!outFile.is_open()) {
-    printf("[WARNING] Cannot write results into output file %s \n", fName.c_str());
-  } else {
-    size_t outCount = total_output_len * config.beam_width;
-    int* hBuf = new int[outCount];
-    ft::cudaD2Hcpy(hBuf, d_output_ids, outCount);
-
-    {
-      int zeroCount = 0;
-      for (size_t i = 0; i < outCount; i++) {
-        if (hBuf[i] == int(0)) {
-          zeroCount++;
-        }
-        outFile << hBuf[i] << " ";
-        if ((i + 1) % (total_output_len) == 0) {
-          outFile << std::endl;
-        }
-      }
-    }
-    delete[] hBuf;
-  }
-  outFile.close();
+  Tokens output;
+  size_t output_size = total_output_len * m_config.beam_width;
+  output.resize(output_size);
+  ft::cudaD2Hcpy(output.data(), d_output_ids, output_size);
+  return output;
 }
